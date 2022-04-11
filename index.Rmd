@@ -1,0 +1,209 @@
+---
+title: "Project 1"
+author: "Robert Poole"
+date: '2022-04-04'
+output: 
+  html_document:
+    df_print: paged
+    code_folding: "hide"
+    toc: yes
+    fig _caption: no
+    theme: cerulean
+    toc_float: no
+---
+
+
+```{r setup, include = FALSE}
+rm(list = ls())
+graphics.off()
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+```{r loadPackages, message=FALSE}
+require(fpp3)
+require(tsibble)
+require(tidyverse)
+require(tidyquant)
+require(lubridate)
+require(timetk)
+require(kableExtra)
+require(reshape2)
+```
+
+# Introduction
+
+Inflation is a valuable resource when attempting to determine the economic status of a nation. Companies and households often utilize the present state of inflation to make proper, well-informed decisions regarding their capital. Policymakers and political figures turn toward inflation forecasting to aid in judgement when determining their fiscal or monetary stance for a specific time period. Historically, inflation forecasting has been difficult due to unexpected events or shocks to the economy. Most recently, the COVID-19 pandemic shook up nations across the globe and put a wrench in our current models. While these shocks are unpredictable, it is crucial that we continue to analyze the past to determine how things are handled in the future because, as we know, history tends to repeat itself.
+
+```{r downloadData}
+varList <- c("PCEPI", "UNRATE", "MICH", "TCU", "HOUST")
+Fred_Data <-
+  tq_get(varList, get = "economic.data", from = "1982-01-01") %>%
+  mutate(Month = yearmonth(date), value = price) %>%
+  dplyr::select(-c(date, price)) %>%
+  as_tsibble(index = Month, key = symbol)
+Vars <- Fred_Data %>%
+  pivot_wider(names_from = symbol, values_from = value) %>%
+  as_tsibble()  %>% 
+  drop_na()
+```
+
+# Determining Variables
+
+When forecasting inflation rates, it is important to choose valuable indicators or variables that will give us the most insight into future inflation rates. This poses additional challenges highlighted by the French Economist Lon Walras, where he essentially states “everything causes everything else.” Considering observing thousands of variables will create a host of problems, this forecast will utilize four variables that have been examined since 1982.
+
+Before introducing the four variables, we will observe is the PCEPI – the Personal Consumption Expenditures Price Index. A measure of the prices that people or those buying on their behalf, pay for goods and services. The PCE price index is known for capturing inflation (or deflation) across a wide range of consumer expenses and reflecting changes in consumer behavior.
+
+The first variable, unemployment rate (UNRATE) is often an optimal indicator of inflation rate due to the inverse effect they have on one another. Typically, if unemployment rate high, then then the inflation rate will be low and vice versa. While most studies have confirmed this assumption, it is important that we observe the strength of this relationship, nonetheless.
+
+Before introducing the next variable, it is important to remember again that future shocks are nearly impossible to include in expectations. However, The University of Michigan: Inflation Expectation (MICH) will be another solid starting point when discerning future inflation rates. As expected, inflation can play a significant role in determining future inflation rates.
+
+Capacity Utilization (TCU) at a glance looks to be an asset when forecasting inflation. It is commonly understood throughout history that a low-capacity utilization rate will result in an increase in price inflation because there are excess capacity and insufficient demand for the output produced. As capacity utilization and inflation converge, it is expected that inflation would be benign for the foreseeable future.
+
+We will include New Privately Owned Housing Units (HOUST) as our final variable. In increase in new housing units would assume that inflation would increase simultaneously. This could be due to the Consumer Price Index, which in short, measures the prices of a basket of household goods and services. Considering shelter makes up 40% of CPI, increasing new housing units may increase inflation.
+
+Each of these variables present valuable data that can help forecast future inflation rates. Therefore, we will fit a model that encompasses all four of these variables.
+
+
+```{r, TransformData}
+ZFore <- Vars %>% select(c(PCEPI, UNRATE, MICH, TCU, HOUST)) %>%
+  mutate(infl = 1200*log(PCEPI/lag(PCEPI))) %>% 
+  mutate(dinfl = infl - lag(infl,1)) %>% 
+  mutate(dinfl12 = 100*log(PCEPI/lag(PCEPI,12)) - lag(infl,12)) %>% 
+  mutate(unrate = UNRATE - lag(UNRATE)) %>% 
+  mutate(mich = MICH - lag(MICH)) %>%
+  mutate(tcu = TCU - lag(TCU)) %>% 
+  mutate(houst = 100*log(HOUST/lag(HOUST))) %>% 
+  select(-c(PCEPI, UNRATE, MICH, TCU, HOUST)) %>% 
+  drop_na()
+train_data <- ZFore %>% filter_index(~ "2018-12")
+test_data <- ZFore %>% filter_index("2019-01" ~ .)
+```
+
+```{r, melt, include=FALSE}
+Zm <- melt(ZFore, "Month")
+ggplot(Zm, aes(Month, value)) + 
+  geom_line() + 
+  facet_wrap(~variable, scales = "free", ncol = 2)
+```
+
+```{r, Fit Models, include=FALSE}
+fitPC <- train_data %>% 
+  model(
+    mPC = TSLM(dinfl12 ~ 1 +
+                 lag(dinfl,12) + lag(dinfl,13) + lag(dinfl,14) +
+                 lag(dinfl,15) + lag(dinfl,16) + lag(dinfl,17) +
+                 lag(dinfl,18) + lag(dinfl,19) + lag(dinfl,20) +
+                 lag(dinfl,21) + lag(dinfl,22) + lag(dinfl,23) +
+                 lag(unrate,12) + lag(unrate,13) + lag(unrate,14) +
+                 lag(unrate,15) + lag(unrate,16) + lag(unrate,17) +
+                 lag(unrate,18) + lag(unrate,19) + lag(unrate,20) +
+                 lag(unrate,21) + lag(unrate,22) + lag(unrate,23) 
+                 )
+  ) 
+report(fitPC)
+```
+
+```{r, Fitting Models}
+fit_all <- train_data %>% 
+  model(
+    mUNRATE = TSLM(dinfl12 ~ 1 +
+                 lag(dinfl,12) + lag(dinfl,13) + lag(dinfl,14) +
+                 lag(dinfl,15) + lag(dinfl,16) + lag(dinfl,17) +
+                 lag(dinfl,18) + lag(dinfl,19) + lag(dinfl,20) +
+                 lag(dinfl,21) + lag(dinfl,22) + lag(dinfl,23) +
+                 lag(unrate,12) + lag(unrate,13) + lag(unrate,14) +
+                 lag(unrate,15) + lag(unrate,16) + lag(unrate,17) +
+                 lag(unrate,18) + lag(unrate,19) + lag(unrate,20) +
+                 lag(unrate,21) + lag(unrate,22) + lag(unrate,23) 
+                 ),
+
+
+    mMICH = TSLM(dinfl12 ~ 1 +
+                 lag(dinfl,12) + lag(dinfl,13) + lag(dinfl,14) +
+                 lag(dinfl,15) + lag(dinfl,16) + lag(dinfl,17) +
+                 lag(dinfl,18) + lag(dinfl,19) + lag(dinfl,20) +
+                 lag(dinfl,21) + lag(dinfl,22) + lag(dinfl,23) +
+                 lag(mich,12) + lag(mich,13) + lag(mich,14) +
+                 lag(mich,15) + lag(mich,16) + lag(mich,17) +
+                 lag(mich,18) + lag(mich,19) + lag(mich,20) +
+                 lag(mich,21) + lag(mich,22) + lag(mich,23) 
+                 ),
+
+
+    mTCU = TSLM(dinfl12 ~ 1 +
+                 lag(dinfl,12) + lag(dinfl,13) + lag(dinfl,14) +
+                 lag(dinfl,15) + lag(dinfl,16) + lag(dinfl,17) +
+                 lag(dinfl,18) + lag(dinfl,19) + lag(dinfl,20) +
+                 lag(dinfl,21) + lag(dinfl,22) + lag(dinfl,23) +
+                 lag(tcu,12) + lag(tcu,13) + lag(tcu,14) +
+                 lag(tcu,15) + lag(tcu,16) + lag(tcu,17) +
+                 lag(tcu,18) + lag(tcu,19) + lag(tcu,20) +
+                 lag(tcu,21) + lag(tcu,22) + lag(tcu,23) 
+                 ),
+
+
+    mHOUST = TSLM(dinfl12 ~ 1 +
+                 lag(dinfl,12) + lag(dinfl,13) + lag(dinfl,14) +
+                 lag(dinfl,15) + lag(dinfl,16) + lag(dinfl,17) +
+                 lag(dinfl,18) + lag(dinfl,19) + lag(dinfl,20) +
+                 lag(dinfl,21) + lag(dinfl,22) + lag(dinfl,23) +
+                 lag(houst,12) + lag(houst,13) + lag(houst,14) +
+                 lag(houst,15) + lag(houst,16) + lag(houst,17) +
+                 lag(houst,18) + lag(houst,19) + lag(houst,20) +
+                 lag(houst,21) + lag(houst,22) + lag(houst,23) 
+                 )
+  )
+
+
+fit_combo <- fit_all %>% mutate(ensemble=(mUNRATE + mMICH + mTCU + mHOUST)/4)
+```
+
+# Demonstrating Forecast Accuracy
+
+Shown below is the graph that illustrates how each model performs. Initially, the first thing that comes to attention is the black line running through the center or the graph. This plots the inflation that is being forecasted. Each additional colored line represents one of the other observed models. While it is difficult to visually determine the best model, having a graph exemplifies the impact that COVID-19 has on our variables. We notice that all models perform well up until around February of 2021. This can be explained by the COVID-19 shock not taking effect until a year after COVID-19 was publicly announced. Upon its arrival, the job market began to go awry with people working from home and some even losing their jobs. This sent the job market into a frenzy, which in turn had a significant impact on our variables. That in mind, the visual test would signal that unemployment rate can be ruled out immediately. The unemployment rate (in purple) has an extremely wide confidence interval and drifts the furthest away from the observed inflation. The ensemble model (combined model) appears to offer the best representation of the actual data visually. However, we will introduce train and test data to provide some clarity behind our graph.
+
+```{r fitEnsemble/Forecast}
+fc_comp <- fit_combo %>% forecast(new_data = test_data)
+fc_comp %>% autoplot(filter(ZFore, year(Month) > 2016), level = c(95))
+```
+
+# Assesing Forecast Accuracy
+
+While seeing the forecast visually can give us a better understanding of how the fit of each model changes over time. Train and test data give us a quantitative understanding on how each model performs as a whole. Typically, the train and test data provide multiple outputs for each model. An important one being the root mean squared error (RSME), which explains how spread out these residuals are. In other words, it tells us how concentrated the data is around the actual inflation (black line in the graph). For simplicity sake, we will observe the most important piece of output, the mean absolute percentage error (MAPE). MAPE is a straightforward metric, the lower the MAPE is, the better the model. Meaning, when the MAPE is lower, it better relates to the real inflation. After observing the MAPE, we determine that the model of best fit is the Capacity Utilization model (TCU), followed by the ensemble model that was predicted with our visual test.
+
+```{r Combine}
+
+sample <- accuracy(fit_combo)
+All <- fit_combo %>% forecast(new_data = test_data)
+sampleacc <- accuracy(All, ZFore)
+
+```
+
+
+```{r accCompTrain, include =FALSE}
+accuracy(fc_comp, ZFore)
+```
+
+```{r, accCompTest}
+IN_sample <- sample %>%
+  select(c(".model", ".type", "MAPE")) %>%
+  kable(format = "html", table.attr = "style='widtth:30$;' ") %>%
+  kableExtra::kable_styling()
+
+IN_sample
+```
+
+```{r, accCompTest2}
+OUT_Sample <- sampleacc %>%
+  select(c(".model", ".type", "MAPE")) %>%
+  kable(format = "html", table.attr = "style='widtth:30%$' ") %>%
+  kableExtra::kable_styling()
+
+OUT_Sample
+```
+
+# Conclusion
+
+After thorough analysis on the models forecasted, the Capacity Utilization model best predicts future inflation. That being said, it is important to note that none of these models do a particularly good job at forecasting future inflation rates. At the very least, we have gained insight into the effects economic shocks have on our variables and how well they predict future inflation.
